@@ -15,76 +15,81 @@ import CoreBluetooth
 import CoreLocation
 
 class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CBCentralManagerDelegate, CLLocationManagerDelegate {
-    
-    // cellphone screen UI outlet objects
-    @IBOutlet weak var startStopButton: UIButton!
-    @IBOutlet weak var timeLabel: UILabel!
-    @IBOutlet weak var trackingStatusLabel: UILabel!
-    @IBOutlet weak var mappingStatusLabel: UILabel!
-    @IBOutlet weak var frameCounterLabel: UILabel!
-    @IBOutlet weak var fileSizeLabel: UILabel!
-    @IBOutlet weak var fpsLabel: UILabel!
-    @IBOutlet weak var fpsStepper: UIStepper!
-    @IBOutlet weak var timeWriteLabel: UILabel!
-    
+
     @IBOutlet var sceneView: ARSCNView!
-    
+
+    // Overlay UI, built programmatically in setupOverlayUI()
+    var timePill: UIView!
+    var timeLabel: UILabel!
+    var trackingDot: UIView!
+    var trackingStatusLabel: UILabel!
+    var mappingDot: UIView!
+    var mappingStatusLabel: UILabel!
+    var frameCounterLabel: UILabel!
+    var fileSizeLabel: UILabel!
+    var fpsLabel: UILabel!
+    var fpsStepper: UIStepper!
+    var timeWriteLabel: UILabel!
+    var recordButton: UIButton!
+    var recordShape: UIView!
+
     var isRecording: Bool = false
     let queue: DispatchQueue = DispatchQueue(label: "com.scantoolscapture", attributes: .concurrent)
     var writerQueue: OperationQueue!
     var hasDepth: Bool = false
-    
+
     var frameDrop: UInt = 6  // how many frames to skip at 60Hz
     var arFrameCounter: UInt = 0  // total number of ARFrames at 60Hz
     var captureFrameCounter: UInt = 0  // number of subsampled frames
-    
+
     var outDirURL: URL!
     let imageDirName = "images"
     let depthDirName = "depth"
     var imageWriter: ImageStreamer!
     var poseWriter: PoseWriter!
-    
+
     let captureDepth: Bool = true
     var depthWriter: ImageWriter!
-    
+
     let captureIMU: Bool = true
     let imuFreq: Double = 100.0
     var motionManager: CMMotionManager!
     var motionWriter: MotionWriter!
-    
+
     let captureBT: Bool = true
     var btManager: CBCentralManager!
     var btTimer: Timer!
     var btWriter: BluetoothWriter!
     let btQueue: DispatchQueue = DispatchQueue(label: "com.scantoolscapture.bluetooth")
-    
+
     let captureLocation: Bool = true
     var locationManager: CLLocationManager!
     var locationWriter: LocationWriter!
-    
+
     // UI
     var diskCapacity: String = "?"
     var startTime: Date!
     var recordingTimer: Timer!
     var previousPosition: SCNVector3?
     var timeWriteText: String = "? ms"
-    
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+
         self.sceneView.debugOptions = [ARSCNDebugOptions.showFeaturePoints, ARSCNDebugOptions.showWorldOrigin]
 
         sceneView.delegate = self
-        sceneView.showsStatistics = true
         sceneView.session.delegate = self
-        
+
+        setupOverlayUI()
         updateDiskCapacity()
         initializeUI()
-        startStopButton.setTitle("Start", for: .normal)
 
         writerQueue = OperationQueue()
         writerQueue.maxConcurrentOperationCount = 1
-        
+
         if captureIMU {
             motionManager = CMMotionManager()
             if !motionManager.isDeviceMotionAvailable {os_log("Fused device motion not available.")}
@@ -103,10 +108,226 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             locationManager!.requestWhenInUseAuthorization()
         }
     }
-    
+
+    // MARK: - Overlay UI
+
+    private enum UIStyle {
+        static let chromeColor = UIColor(white: 0.0, alpha: 0.45)
+        static let dimTextColor = UIColor(white: 1.0, alpha: 0.55)
+        static let recordSize: CGFloat = 72
+        static let recordInset: CGFloat = 6
+    }
+
+    private func setupOverlayUI() {
+        // Recording time pill, top center
+        timePill = UIView()
+        timePill.backgroundColor = UIStyle.chromeColor
+        timePill.layer.cornerRadius = 16
+        timePill.translatesAutoresizingMaskIntoConstraints = false
+
+        timeLabel = UILabel()
+        timeLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        timeLabel.textColor = .white
+        timeLabel.translatesAutoresizingMaskIntoConstraints = false
+        timePill.addSubview(timeLabel)
+
+        // Tracking / mapping status chips
+        trackingDot = makeDot()
+        trackingStatusLabel = makeChipLabel()
+        let trackingChip = makeChip(dot: trackingDot, label: trackingStatusLabel)
+
+        mappingDot = makeDot()
+        mappingStatusLabel = makeChipLabel()
+        let mappingChip = makeChip(dot: mappingDot, label: mappingStatusLabel)
+
+        let chipsRow = UIStackView(arrangedSubviews: [trackingChip, mappingChip])
+        chipsRow.axis = .horizontal
+        chipsRow.spacing = 8
+        chipsRow.translatesAutoresizingMaskIntoConstraints = false
+
+        // Bottom control card
+        let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        card.layer.cornerRadius = 28
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let (framesStat, framesValue) = makeStat(title: "FRAMES")
+        frameCounterLabel = framesValue
+        let (sizeStat, sizeValue) = makeStat(title: "SIZE")
+        fileSizeLabel = sizeValue
+        let (writeStat, writeValue) = makeStat(title: "WRITE")
+        timeWriteLabel = writeValue
+
+        let statsRow = UIStackView(arrangedSubviews: [framesStat, sizeStat, writeStat])
+        statsRow.axis = .horizontal
+        statsRow.distribution = .fillEqually
+        statsRow.translatesAutoresizingMaskIntoConstraints = false
+
+        // Record button: white ring + red shape that morphs to a square while recording
+        recordButton = UIButton(type: .custom)
+        recordButton.translatesAutoresizingMaskIntoConstraints = false
+        recordButton.layer.cornerRadius = UIStyle.recordSize / 2
+        recordButton.layer.borderWidth = 4
+        recordButton.layer.borderColor = UIColor.white.cgColor
+        recordButton.addTarget(self, action: #selector(startStopButtonPressed(_:)), for: .touchUpInside)
+
+        recordShape = UIView()
+        recordShape.backgroundColor = .systemRed
+        recordShape.isUserInteractionEnabled = false
+        recordShape.translatesAutoresizingMaskIntoConstraints = false
+        recordShape.layer.cornerRadius = (UIStyle.recordSize - 2 * UIStyle.recordInset) / 2
+        recordButton.addSubview(recordShape)
+
+        // FPS control, left of the record button
+        fpsLabel = UILabel()
+        fpsLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        fpsLabel.textColor = .white
+        fpsLabel.textAlignment = .center
+
+        fpsStepper = UIStepper()
+        fpsStepper.minimumValue = 1
+        fpsStepper.maximumValue = 60
+        fpsStepper.addTarget(self, action: #selector(fpsStepperChanged(_:)), for: .valueChanged)
+
+        let fpsControl = UIStackView(arrangedSubviews: [fpsLabel, fpsStepper])
+        fpsControl.axis = .vertical
+        fpsControl.alignment = .center
+        fpsControl.spacing = 6
+        fpsControl.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(timePill)
+        view.addSubview(chipsRow)
+        view.addSubview(card)
+        card.contentView.addSubview(statsRow)
+        card.contentView.addSubview(fpsControl)
+        card.contentView.addSubview(recordButton)
+
+        let safe = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            timePill.topAnchor.constraint(equalTo: safe.topAnchor, constant: 8),
+            timePill.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+            timePill.heightAnchor.constraint(equalToConstant: 32),
+            timeLabel.leadingAnchor.constraint(equalTo: timePill.leadingAnchor, constant: 14),
+            timeLabel.trailingAnchor.constraint(equalTo: timePill.trailingAnchor, constant: -14),
+            timeLabel.centerYAnchor.constraint(equalTo: timePill.centerYAnchor),
+
+            chipsRow.topAnchor.constraint(equalTo: timePill.bottomAnchor, constant: 8),
+            chipsRow.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+
+            card.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            card.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            card.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+
+            statsRow.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 14),
+            statsRow.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
+            statsRow.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -16),
+
+            recordButton.topAnchor.constraint(equalTo: statsRow.bottomAnchor, constant: 14),
+            recordButton.centerXAnchor.constraint(equalTo: card.contentView.centerXAnchor),
+            recordButton.widthAnchor.constraint(equalToConstant: UIStyle.recordSize),
+            recordButton.heightAnchor.constraint(equalToConstant: UIStyle.recordSize),
+            recordButton.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -14),
+
+            recordShape.centerXAnchor.constraint(equalTo: recordButton.centerXAnchor),
+            recordShape.centerYAnchor.constraint(equalTo: recordButton.centerYAnchor),
+            recordShape.widthAnchor.constraint(equalToConstant: UIStyle.recordSize - 2 * UIStyle.recordInset),
+            recordShape.heightAnchor.constraint(equalToConstant: UIStyle.recordSize - 2 * UIStyle.recordInset),
+
+            fpsControl.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 20),
+            fpsControl.trailingAnchor.constraint(lessThanOrEqualTo: recordButton.leadingAnchor, constant: -12),
+            fpsControl.centerYAnchor.constraint(equalTo: recordButton.centerYAnchor),
+        ])
+    }
+
+    private func makeDot() -> UIView {
+        let dot = UIView()
+        dot.backgroundColor = .systemGray
+        dot.layer.cornerRadius = 4
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            dot.widthAnchor.constraint(equalToConstant: 8),
+            dot.heightAnchor.constraint(equalToConstant: 8),
+        ])
+        return dot
+    }
+
+    private func makeChipLabel() -> UILabel {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .white
+        return label
+    }
+
+    private func makeChip(dot: UIView, label: UILabel) -> UIView {
+        let content = UIStackView(arrangedSubviews: [dot, label])
+        content.axis = .horizontal
+        content.alignment = .center
+        content.spacing = 6
+        content.translatesAutoresizingMaskIntoConstraints = false
+
+        let chip = UIView()
+        chip.backgroundColor = UIStyle.chromeColor
+        chip.layer.cornerRadius = 12
+        chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.addSubview(content)
+        NSLayoutConstraint.activate([
+            chip.heightAnchor.constraint(equalToConstant: 24),
+            content.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 10),
+            content.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -10),
+            content.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
+        ])
+        return chip
+    }
+
+    private func makeStat(title: String) -> (UIStackView, UILabel) {
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        titleLabel.textColor = UIStyle.dimTextColor
+
+        let valueLabel = UILabel()
+        valueLabel.text = "?"
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        valueLabel.textColor = .white
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.6
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 2
+        return (stack, valueLabel)
+    }
+
+    private static func indicatorColor(for state: ARCamera.TrackingState) -> UIColor {
+        switch state {
+        case .normal:
+            return .systemGreen
+        case .limited:
+            return .systemYellow
+        case .notAvailable:
+            return .systemRed
+        }
+    }
+
+    private static func indicatorColor(for status: ARFrame.WorldMappingStatus) -> UIColor {
+        switch status {
+        case .mapped:
+            return .systemGreen
+        case .extending:
+            return .systemTeal
+        case .limited:
+            return .systemYellow
+        case .notAvailable:
+            return .systemGray
+        @unknown default:
+            return .systemGray
+        }
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-    
+
         let configuration = ARWorldTrackingConfiguration()
         configuration.worldAlignment = ARConfiguration.WorldAlignment.gravity
         if captureDepth && ARWorldTrackingConfiguration.supportsFrameSemantics([.sceneDepth]) {
@@ -114,17 +335,17 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             self.hasDepth = true
             os_log("Will also save depth data.")
         }
-        
+
         sceneView.session.run(configuration)
     }
-    
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        
+
         sceneView.session.pause()
     }
 
-    @IBAction func startStopButtonPressed(_ sender: UIButton) {
+    @objc func startStopButtonPressed(_ sender: UIButton) {
         if (self.isRecording == false) {
             os_log("Starting a new recording.")
             queue.async {
@@ -186,11 +407,11 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             })
         }
     }
-    
+
     func session(_ session: ARSession, didFailWithError error: Error) {
         os_log("AR session failed: %@", type:.error, error.localizedDescription)
     }
-    
+
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         let mappingStatus = frame.worldMappingStatus
         let trackingState = frame.camera.trackingState
@@ -198,7 +419,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         if (self.arFrameCounter % 6) == 0 {  // only update the UI every 100ms
             DispatchQueue.main.async { [arFrameCounter = self.arFrameCounter] in
                 self.trackingStatusLabel.text = trackingState.toString()
+                self.trackingDot.backgroundColor = Self.indicatorColor(for: trackingState)
                 self.mappingStatusLabel.text = mappingStatus.toString()
+                self.mappingDot.backgroundColor = Self.indicatorColor(for: mappingStatus)
                 self.timeWriteLabel.text = self.timeWriteText + String(format:" / %d", self.writerQueue.operationCount)
                 if self.isRecording {
                     if (arFrameCounter % 30) == 0 {  // every half second
@@ -232,23 +455,23 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             arFrameCounter += 1
         }
     }
-    
+
     private func drawCamera(camera: ARCamera) {
         let tvec = camera.transform.columns.3
         let position = SCNVector3Make(tvec.x, tvec.y, tvec.z)
-        
+
         if previousPosition != nil {
             let dist = (position - previousPosition!).length()
             if dist < 1.0 {  // every meter
                 return
             }
         }
-        
+
         let node = SCNNode(geometry: SCNSphere(radius: 0.005))
         node.geometry?.firstMaterial?.diffuse.contents = UIColor.red
         node.simdPosition = simd_make_float3(tvec)
         sceneView.scene.rootNode.addChildNode(node)
-        
+
         if previousPosition != nil {
             let indices: [Int32] = [0, 1]
             let source = SCNGeometrySource(vertices: [previousPosition!, position])
@@ -260,40 +483,43 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         }
         previousPosition = position
     }
-    
+
     private func toggleRecording(val: Bool) {
         self.isRecording = val
-        if val {
-            self.startStopButton.setTitle("Stop", for: .normal)
-            self.fpsStepper.isEnabled = false
-            // prevent screen lock
-            UIApplication.shared.isIdleTimerDisabled = true
-        } else {
-            self.startStopButton.setTitle("Start", for: .normal)
-            self.fpsStepper.isEnabled = true
-            // re-allow screen lock
-            UIApplication.shared.isIdleTimerDisabled = false
+        self.fpsStepper.isEnabled = !val
+        // prevent screen lock while recording
+        UIApplication.shared.isIdleTimerDisabled = val
+        UIView.animate(withDuration: 0.25) {
+            if val {
+                self.recordShape.layer.cornerRadius = 12
+                self.recordShape.transform = CGAffineTransform(scaleX: 0.55, y: 0.55)
+                self.timePill.backgroundColor = .systemRed
+            } else {
+                self.recordShape.layer.cornerRadius = (UIStyle.recordSize - 2 * UIStyle.recordInset) / 2
+                self.recordShape.transform = .identity
+                self.timePill.backgroundColor = UIStyle.chromeColor
+            }
         }
     }
-    
-    @IBAction func fpsStepperChanged(_ sender: UIStepper) {
+
+    @objc func fpsStepperChanged(_ sender: UIStepper) {
         frameDrop = 61 - UInt(sender.value)
         fpsLabel.text = String(format: "%.1f FPS", 60/Double(frameDrop))
     }
-    
+
     private func initializeUI() {
-        timeLabel.text = "Ready"
+        timeLabel.text = "READY"
         frameCounterLabel.text = "0"
         fileSizeLabel.text = String(format: "? / %@", self.diskCapacity)
         fpsLabel.text = String(format: "%.1f FPS", 60/Double(frameDrop))
         fpsStepper.value = Double(61 - frameDrop)
         timeWriteLabel.text = timeWriteText
-        
+
         sceneView.scene.rootNode.enumerateChildNodes { (node, stop) in
                 node.removeFromParentNode()
         }
     }
-    
+
     @objc private func updateTime() {
         var elapsed = Int64(round(Date().timeIntervalSince(self.startTime)))
         let hours: Int64 = elapsed / 3600
@@ -302,7 +528,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         let secs: Int64 = elapsed % 60
         self.timeLabel.text = String(format: "%02d:%02d:%02d", hours, mins, secs)
     }
-    
+
     private func updateSize() {
         var str: String = "?"
         if let size = try? self.outDirURL.sizeOnDisk(){
@@ -310,7 +536,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         }
         self.fileSizeLabel.text = String(format: "%@ / %@", str, self.diskCapacity)
     }
-    
+
     private func showError(msg: String) {
         DispatchQueue.main.async {
             let fileAlert = UIAlertController(title: "Error", message: msg, preferredStyle: .alert)
@@ -318,7 +544,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             self.present(fileAlert, animated: true, completion: nil)
         }
     }
-    
+
     private func createFiles() -> Bool {
         // Create the output directory
         let recDirURL = getRecDir()
@@ -332,20 +558,20 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             os_log("Cannot create the output directory: %@", type:.error, error.localizedDescription)
             return false
         }
-        
+
         // Create the pose file
         guard let poseWriter = PoseWriter(outDir: outDirURL) else {return false}
         self.poseWriter = poseWriter
-        
+
         self.imageWriter = ImageStreamer(outDir: outDirURL)
-        
+
         // Create the depth folder
         if (hasDepth) {
             let depthDirURL = outDirURL.appendingPathComponent(depthDirName)
             guard let depthWriter = ImageWriter(outDir: depthDirURL) else {return false}
             self.depthWriter = depthWriter
         }
-        
+
         if captureIMU && (motionManager != nil){
             guard let motionWriter = MotionWriter(
                     outDir: outDirURL, manager: motionManager, freq: imuFreq) else {return false}
@@ -353,14 +579,14 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         } else {
             os_log("Will not record IMU data.")
         }
-        
+
         if captureBT && (self.btManager?.state == .poweredOn) {
             guard let btWriter = BluetoothWriter(outDir: outDirURL) else {return false}
             self.btWriter = btWriter
         } else {
             os_log("Will not record Bluetooth data.")
         }
-        
+
         if captureLocation {
             let status = locationManager!.authorizationStatus
             if [CLAuthorizationStatus.authorizedAlways, CLAuthorizationStatus.authorizedWhenInUse].contains(status) {
@@ -371,11 +597,11 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
                 os_log("Will not record Location data because it was not approved.")
             }
         }
-        
+
         updateDiskCapacity()
         return true
     }
-    
+
     private func updateDiskCapacity() {
         do {
             let capacityValues = try self.getRecDir().resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -390,11 +616,11 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         } catch {
         }
     }
-    
+
     private func getRecDir() -> URL {
         return try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
     }
-    
+
     // Bluetooth methods
     internal func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
@@ -414,27 +640,27 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
                 break
         }
     }
-    
+
     @objc private func refreshBluetooth() {
         stopBluetoooth()
         startBluetoooth()
     }
-    
+
     private func startBluetoooth() {
         btManager.scanForPeripherals(
             withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey : false])
     }
-    
+
     private func stopBluetoooth() {
         if self.btManager?.state == .poweredOn {
             btManager.stopScan()
         }
     }
-    
+
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi: NSNumber) {
         btWriter.write(peripheral: peripheral, rssi: rssi)
     }
-    
+
     // Location methods
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let clErr = error as! CLError
@@ -450,7 +676,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
                 break
         }
     }
-    
+
     func locationManager(_ manager: CLLocationManager,  didUpdateLocations locations: [CLLocation]) {
         if locationWriter != nil {
             self.writerQueue.addOperation({
