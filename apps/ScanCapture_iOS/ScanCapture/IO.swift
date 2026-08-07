@@ -9,7 +9,8 @@ import Foundation
 import AVFoundation
 import os.log
 import ARKit
-import MobileCoreServices  // for ImageI/O
+import ImageIO
+import UniformTypeIdentifiers
 import CoreMotion
 import CoreBluetooth
 
@@ -134,12 +135,11 @@ class ImageWriter {
         
         let imagePath = outDir.appendingPathComponent(String(format: "%lld.jpg", timestampToInt(timestamp)))
         let options: NSDictionary = [kCGImageDestinationLossyCompressionQuality: 0.5]
-        let myImageDest = CGImageDestinationCreateWithURL(imagePath as CFURL, kUTTypeJPEG, 1, nil)!
+        let myImageDest = CGImageDestinationCreateWithURL(imagePath as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(myImageDest, cgImage!, options)
         CGImageDestinationFinalize(myImageDest)
     }
     
-    @available(iOS 14.0, *)
     func writeDepth(sceneDepth: ARDepthData, timestamp: TimeInterval) {
         let depthMap = sceneDepth.depthMap;
         CVPixelBufferLockBaseAddress(depthMap, CVPixelBufferLockFlags(rawValue: 0))
@@ -193,7 +193,7 @@ class PoseWriter {
             os_log("Cannot create the pose file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func write(camera: ARCamera, timestamp: TimeInterval, state: String) {
@@ -208,14 +208,18 @@ class PoseWriter {
             width, height, K[0][0], K[1][1], K[2][0], K[2][1],
             timestampToInt(camera.exposureDuration))
         if let poseDataOut = poseData.data(using: .utf8) {
-            file!.write(poseDataOut)
+            do {
+                try file!.write(contentsOf: poseDataOut)
+            } catch {
+                os_log("Failed to write pose data: %@", type: .error, error.localizedDescription)
+            }
         } else {
             os_log("Failed to format to the pose string: %@", type: .fault, poseData)
         }
     }
     
     func finish() {
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -244,7 +248,7 @@ class AccelWriter {
             os_log("Cannot create the accelerometer file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func start(queue: OperationQueue) {
@@ -255,7 +259,11 @@ class AccelWriter {
                     timestampToInt(data.timestamp),
                     data.acceleration.x, data.acceleration.y, data.acceleration.z)
                 if let outData = strData.data(using: .utf8) {
-                    self.file!.write(outData)
+                    do {
+                        try self.file!.write(contentsOf: outData)
+                    } catch {
+                        os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+                    }
                 } else {
                     os_log("Failed to format to the accelerometer string: %@", type: .fault, strData)
                 }
@@ -265,7 +273,7 @@ class AccelWriter {
     
     func finish() {
         manager.stopAccelerometerUpdates()
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -294,7 +302,7 @@ class GyroWriter {
             os_log("Cannot create the gyroscope file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func start(queue: OperationQueue) {
@@ -305,7 +313,11 @@ class GyroWriter {
                     timestampToInt(data.timestamp),
                     data.rotationRate.x, data.rotationRate.y, data.rotationRate.z)
                 if let outData = strData.data(using: .utf8) {
-                    self.file!.write(outData)
+                    do {
+                        try self.file!.write(contentsOf: outData)
+                    } catch {
+                        os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+                    }
                 } else {
                     os_log("Failed to format to the gyroscope string: %@", type: .fault, strData)
                 }
@@ -315,7 +327,7 @@ class GyroWriter {
     
     func finish() {
         manager.stopGyroUpdates()
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -344,7 +356,7 @@ class MagnetoWriter {
             os_log("Cannot create the magnetometer file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func start(queue: OperationQueue) {
@@ -355,7 +367,11 @@ class MagnetoWriter {
                     timestampToInt(data.timestamp),
                     data.magneticField.x, data.magneticField.y, data.magneticField.z)
                 if let outData = strData.data(using: .utf8) {
-                    self.file!.write(outData)
+                    do {
+                        try self.file!.write(contentsOf: outData)
+                    } catch {
+                        os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+                    }
                 } else {
                     os_log("Failed to format to the magnetometer string: %@", type: .fault, strData)
                 }
@@ -365,7 +381,7 @@ class MagnetoWriter {
     
     func finish() {
         manager.stopMagnetometerUpdates()
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -394,7 +410,7 @@ class FusedMotionWriter {
             os_log("Cannot create the fused motion file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func start(queue: OperationQueue) {
@@ -409,7 +425,11 @@ class FusedMotionWriter {
                     data.gravity.x, data.gravity.y, data.gravity.z,
                     data.heading)
                 if let outData = strData.data(using: .utf8) {
-                    self.file!.write(outData)
+                    do {
+                        try self.file!.write(contentsOf: outData)
+                    } catch {
+                        os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+                    }
                 } else {
                     os_log("Failed to format to the fused motion string: %@", type: .fault, strData)
                 }
@@ -419,7 +439,7 @@ class FusedMotionWriter {
     
     func finish() {
         manager.stopDeviceMotionUpdates()
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -486,7 +506,7 @@ class BluetoothWriter {
             os_log("Cannot create the bluetooth file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
     
     func write(peripheral: CBPeripheral, rssi: NSNumber) {
@@ -498,14 +518,18 @@ class BluetoothWriter {
             peripheral.identifier.uuidString,
             rssi)
         if let outData = strData.data(using: .utf8) {
-            file!.write(outData)
+            do {
+                try file!.write(contentsOf: outData)
+            } catch {
+                os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+            }
         } else {
             os_log("Failed to format to the bluetooth string: %@", type: .fault, strData)
         }
     }
     
     func finish() {
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }
@@ -528,7 +552,7 @@ class LocationWriter {
             os_log("Cannot create the location file: %@", type:.error, error.localizedDescription)
             return nil
         }
-        file.seekToEndOfFile()
+        _ = try? file.seekToEnd()
     }
 
     func write(location: CLLocation) {
@@ -542,7 +566,11 @@ class LocationWriter {
             location.horizontalAccuracy,
             location.verticalAccuracy)
         if let outData = strData.data(using: .utf8) {
-            file!.write(outData)
+            do {
+                try file!.write(contentsOf: outData)
+            } catch {
+                os_log("Failed to write data: %@", type: .error, error.localizedDescription)
+            }
         } else {
             os_log("Failed to format to the location string: %@", type: .fault, strData)
         }
@@ -555,7 +583,7 @@ class LocationWriter {
     }
 
     func finish() {
-        file.closeFile()
+        try? file.close()
         file = nil
     }
 }

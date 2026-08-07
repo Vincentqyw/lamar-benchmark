@@ -109,12 +109,10 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
     
         let configuration = ARWorldTrackingConfiguration()
         configuration.worldAlignment = ARConfiguration.WorldAlignment.gravity
-        if #available(iOS 14.0, *) {
-            if captureDepth && ARWorldTrackingConfiguration.supportsFrameSemantics([.sceneDepth]) {
-                configuration.frameSemantics = [.sceneDepth]
-                self.hasDepth = true
-                os_log("Will also save depth data.")
-            }
+        if captureDepth && ARWorldTrackingConfiguration.supportsFrameSemantics([.sceneDepth]) {
+            configuration.frameSemantics = [.sceneDepth]
+            self.hasDepth = true
+            os_log("Will also save depth data.")
         }
         
         sceneView.session.run(configuration)
@@ -225,10 +223,8 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
                     let enter = ProcessInfo.processInfo.systemUptime
                     self.poseWriter.write(camera: camera, timestamp: timestamp, state: trackingState.toString())
                     self.imageWriter.write(buffer: imageBuffer, timestamp: timestamp)
-                    if #available(iOS 14.0, *) {
-                        if (self.hasDepth && (frame.sceneDepth != nil)) {
-                            self.depthWriter.writeDepth(sceneDepth: frame.sceneDepth!, timestamp: timestamp)
-                        }
+                    if (self.hasDepth && (frame.sceneDepth != nil)) {
+                        self.depthWriter.writeDepth(sceneDepth: frame.sceneDepth!, timestamp: timestamp)
                     }
                     self.timeWriteText = String(format: "%.1f ms", (ProcessInfo.processInfo.systemUptime - enter)*1000)
                 })
@@ -366,12 +362,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         }
         
         if captureLocation {
-            let status: CLAuthorizationStatus
-            if #available(iOS 14.0, *) {
-                status = locationManager!.authorizationStatus
-            } else {
-                status = CLLocationManager.authorizationStatus()
-            }
+            let status = locationManager!.authorizationStatus
             if [CLAuthorizationStatus.authorizedAlways, CLAuthorizationStatus.authorizedWhenInUse].contains(status) {
                 os_log("Location recording is enabled.")
                 guard let locationWriter = LocationWriter(outDir: outDirURL) else {return false}
