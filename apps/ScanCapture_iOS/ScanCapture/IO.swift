@@ -96,6 +96,7 @@ class ImageStreamer {
 
 class ImageWriter {
     var outDir: URL!
+    var depthFrameCount: Int = 0
     let imageContext = CIContext(mtlDevice: MTLCreateSystemDefaultDevice()!)
     //    let imageContext = CIContext(options: nil)
     
@@ -141,6 +142,7 @@ class ImageWriter {
     }
     
     func writeDepth(sceneDepth: ARDepthData, timestamp: TimeInterval) {
+        depthFrameCount += 1
         let depthMap = sceneDepth.depthMap;
         CVPixelBufferLockBaseAddress(depthMap, CVPixelBufferLockFlags(rawValue: 0))
         let addr = CVPixelBufferGetBaseAddress(depthMap)
@@ -227,6 +229,7 @@ class PoseWriter {
 class AccelWriter {
     var file: FileHandle!
     var manager: CMMotionManager!
+    var sampleCount: Int = 0
     let filename = "accelerometer.txt"
     let header = "# timestamp, ax, ay, az\n"
     let template = "%lld, %.6f, %.6f, %.6f\n"
@@ -254,6 +257,7 @@ class AccelWriter {
     func start(queue: OperationQueue) {
         manager.startAccelerometerUpdates(to: queue, withHandler: { (inData, error) in
             if let data = inData {  // if valid
+                self.sampleCount += 1
                 let strData = String(
                     format: self.template,
                     timestampToInt(data.timestamp),
@@ -281,6 +285,7 @@ class AccelWriter {
 class GyroWriter {
     var file: FileHandle!
     var manager: CMMotionManager!
+    var sampleCount: Int = 0
     let filename = "gyroscope.txt"
     let header = "# timestamp, rx, ry, rz\n"
     let template = "%lld, %.6f, %.6f, %.6f\n"
@@ -308,6 +313,7 @@ class GyroWriter {
     func start(queue: OperationQueue) {
         manager.startGyroUpdates(to: queue, withHandler: { (inData, error) in
             if let data = inData {  // if valid
+                self.sampleCount += 1
                 let strData = String(
                     format: self.template,
                     timestampToInt(data.timestamp),
@@ -335,6 +341,7 @@ class GyroWriter {
 class MagnetoWriter {
     var file: FileHandle!
     var manager: CMMotionManager!
+    var sampleCount: Int = 0
     let filename = "magnetometer.txt"
     let header = "# timestamp, mx, my, mz\n"
     let template = "%lld, %.6f, %.6f, %.6f\n"
@@ -362,6 +369,7 @@ class MagnetoWriter {
     func start(queue: OperationQueue) {
         manager.startMagnetometerUpdates(to: queue, withHandler: { (inData, error) in
             if let data = inData {  // if valid
+                self.sampleCount += 1
                 let strData = String(
                     format: self.template,
                     timestampToInt(data.timestamp),
@@ -389,6 +397,7 @@ class MagnetoWriter {
 class FusedMotionWriter {
     var file: FileHandle!
     var manager: CMMotionManager!
+    var sampleCount: Int = 0
     let filename = "fused_imu.txt"
     let header = "# timestamp, ax, ay, az, rx, ry, rz, mx, my, mz, gx, gy, gz, heading\n"
     let template = "%lld, " + Array(repeating: "%.6f", count: 13).joined(separator: ", ") + "\n"
@@ -416,6 +425,7 @@ class FusedMotionWriter {
     func start(queue: OperationQueue) {
         manager.startDeviceMotionUpdates(using: CMAttitudeReferenceFrame.xTrueNorthZVertical, to: queue, withHandler: { (inData, error) in
             if let data = inData {  // if valid
+                self.sampleCount += 1
                 let strData = String(
                     format: self.template,
                     timestampToInt(data.timestamp),
@@ -490,6 +500,7 @@ class MotionWriter {
 
 class BluetoothWriter {
     var file: FileHandle!
+    var sampleCount: Int = 0
     let filename = "bluetooth.txt"
     let header = "# timestamp, name, uuid, rssi\n"
     let template = "%lld, %@, %@, %@\n"
@@ -510,6 +521,7 @@ class BluetoothWriter {
     }
     
     func write(peripheral: CBPeripheral, rssi: NSNumber) {
+        sampleCount += 1
         let name = peripheral.name ?? "unkown"
         let strData = String(
             format: template,
@@ -536,6 +548,7 @@ class BluetoothWriter {
 
 class LocationWriter {
     var file: FileHandle!
+    var sampleCount: Int = 0
     let filename = "location.txt"
     let header = "# timestamp, lat, long, z, sigma_xy, sigma_z\n"
     let template = "%lld, %.6f, %.6f, %.6f, %.6f, %.6f\n"
@@ -556,6 +569,7 @@ class LocationWriter {
     }
 
     func write(location: CLLocation) {
+        sampleCount += 1
         let bootDate = Date() - ProcessInfo.processInfo.systemUptime
         let strData = String(
             format: template,

@@ -32,6 +32,13 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
     var timeWriteLabel: UILabel!
     var recordButton: UIButton!
     var recordShape: UIView!
+    var sensorsButton: UIButton!
+    var sensorsPanel: UIVisualEffectView!
+    private var sensorsPanelOpen = false
+    private var sensorRows: [String: (dot: UIView, value: UILabel)] = [:]
+    private var sensorTimer: Timer!
+    private var lastPanelUpdate: TimeInterval = 0
+    private var prevCounts: [String: Int] = [:]
 
     var isRecording: Bool = false
     let queue: DispatchQueue = DispatchQueue(label: "com.scantoolscapture", attributes: .concurrent)
@@ -86,6 +93,10 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
         setupOverlayUI()
         updateDiskCapacity()
         initializeUI()
+
+        sensorTimer = Timer.scheduledTimer(
+            timeInterval: 1.0, target: self, selector: #selector(updateSensorPanel),
+            userInfo: nil, repeats: true)
 
         writerQueue = OperationQueue()
         writerQueue.maxConcurrentOperationCount = 1
@@ -237,6 +248,197 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
             fpsControl.trailingAnchor.constraint(lessThanOrEqualTo: recordButton.leadingAnchor, constant: -12),
             fpsControl.centerYAnchor.constraint(equalTo: recordButton.centerYAnchor),
         ])
+
+        setupSensorPanel(safe: safe)
+    }
+
+    private func setupSensorPanel(safe: UILayoutGuide) {
+        sensorsButton = UIButton(type: .system)
+        sensorsButton.backgroundColor = UIStyle.chromeColor
+        sensorsButton.layer.cornerRadius = 20
+        sensorsButton.tintColor = .white
+        sensorsButton.setImage(
+            UIImage(systemName: "gauge", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)),
+            for: .normal)
+        sensorsButton.translatesAutoresizingMaskIntoConstraints = false
+        sensorsButton.addTarget(self, action: #selector(toggleSensorsPanel), for: .touchUpInside)
+
+        sensorsPanel = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        sensorsPanel.layer.cornerRadius = 20
+        sensorsPanel.clipsToBounds = true
+        sensorsPanel.translatesAutoresizingMaskIntoConstraints = false
+        sensorsPanel.alpha = 0
+        sensorsPanel.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.97, y: 0.97)
+
+        let title = UILabel()
+        title.attributedText = NSAttributedString(string: "SENSORS", attributes: [
+            .kern: 1.5,
+            .font: UIFont.systemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: UIStyle.dimTextColor,
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [
+            title,
+            makeSensorRow(key: "camera", name: "Camera", symbol: "camera.fill"),
+            makeSensorRow(key: "depth", name: "Depth (LiDAR)", symbol: "cube.transparent"),
+            makeSensorRow(key: "accel", name: "Accelerometer", symbol: "waveform.path"),
+            makeSensorRow(key: "gyro", name: "Gyroscope", symbol: "gyroscope"),
+            makeSensorRow(key: "mag", name: "Magnetometer", symbol: "location.north"),
+            makeSensorRow(key: "fused", name: "Fused IMU", symbol: "waveform.path.ecg"),
+            makeSensorRow(key: "bt", name: "Bluetooth", symbol: "dot.radiowaves.left.and.right"),
+            makeSensorRow(key: "loc", name: "Location", symbol: "location.fill"),
+        ])
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.setCustomSpacing(10, after: title)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(sensorsButton)
+        view.addSubview(sensorsPanel)
+        sensorsPanel.contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            sensorsButton.topAnchor.constraint(equalTo: safe.topAnchor, constant: 8),
+            sensorsButton.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            sensorsButton.widthAnchor.constraint(equalToConstant: 40),
+            sensorsButton.heightAnchor.constraint(equalToConstant: 40),
+
+            sensorsPanel.topAnchor.constraint(equalTo: safe.topAnchor, constant: 84),
+            sensorsPanel.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            sensorsPanel.widthAnchor.constraint(equalToConstant: 262),
+
+            stack.topAnchor.constraint(equalTo: sensorsPanel.contentView.topAnchor, constant: 14),
+            stack.leadingAnchor.constraint(equalTo: sensorsPanel.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: sensorsPanel.contentView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: sensorsPanel.contentView.bottomAnchor, constant: -14),
+        ])
+    }
+
+    private func makeSensorRow(key: String, name: String, symbol: String) -> UIView {
+        let icon = UIImageView(image: UIImage(systemName: symbol))
+        icon.tintColor = UIStyle.dimTextColor
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 15),
+        ])
+
+        let nameLabel = UILabel()
+        nameLabel.text = name
+        nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        nameLabel.textColor = .white
+        nameLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        let valueLabel = UILabel()
+        valueLabel.text = "–"
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        valueLabel.textColor = UIStyle.dimTextColor
+        valueLabel.textAlignment = .right
+
+        let dot = makeDot()
+
+        let row = UIStackView(arrangedSubviews: [icon, nameLabel, valueLabel, dot])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = 8
+        row.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        sensorRows[key] = (dot, valueLabel)
+        return row
+    }
+
+    private enum SensorState { case live, ready, warn, off }
+
+    private func setSensor(_ key: String, _ state: SensorState, _ text: String) {
+        guard let row = sensorRows[key] else { return }
+        row.value.text = text
+        switch state {
+        case .live:  row.dot.backgroundColor = .systemGreen
+        case .ready: row.dot.backgroundColor = UIColor(white: 1.0, alpha: 0.4)
+        case .warn:  row.dot.backgroundColor = .systemYellow
+        case .off:   row.dot.backgroundColor = UIColor(white: 1.0, alpha: 0.15)
+        }
+    }
+
+    @objc private func toggleSensorsPanel() {
+        sensorsPanelOpen.toggle()
+        if sensorsPanelOpen {
+            lastPanelUpdate = ProcessInfo.processInfo.systemUptime
+            prevCounts.removeAll()
+            updateSensorPanel()
+        }
+        let open = sensorsPanelOpen
+        sensorsButton.tintColor = open ? UIColor(red: 0.5, green: 0.86, blue: 0.94, alpha: 1.0) : .white
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.3,
+                       options: [.allowUserInteraction]) {
+            self.sensorsPanel.alpha = open ? 1 : 0
+            self.sensorsPanel.transform = open
+                ? .identity
+                : CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.97, y: 0.97)
+        }
+    }
+
+    @objc private func updateSensorPanel() {
+        guard sensorsPanelOpen else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let dt = max(now - lastPanelUpdate, 0.05)
+        lastPanelUpdate = now
+
+        func rate(_ key: String, _ current: Int) -> Double {
+            let prev = prevCounts[key] ?? current
+            prevCounts[key] = current
+            return max(Double(current - prev) / dt, 0)
+        }
+
+        if isRecording {
+            setSensor("camera", .live, String(format: "%.1f fps", rate("camera", Int(captureFrameCounter))))
+        } else {
+            setSensor("camera", .ready, String(format: "set %.1f fps", 60/Double(frameDrop)))
+        }
+
+        if !hasDepth {
+            setSensor("depth", .off, "unavailable")
+        } else if isRecording && depthWriter != nil {
+            setSensor("depth", .live, String(format: "%.1f fps", rate("depth", depthWriter.depthFrameCount)))
+        } else {
+            setSensor("depth", .ready, "ready")
+        }
+
+        func imu(_ key: String, _ available: Bool, _ count: Int?) {
+            if !available {
+                setSensor(key, .off, "unavailable")
+            } else if isRecording, let count = count {
+                setSensor(key, .live, String(format: "%.0f Hz", rate(key, count)))
+            } else {
+                setSensor(key, .ready, String(format: "%.0f Hz", imuFreq))
+            }
+        }
+        imu("accel", motionManager?.isAccelerometerAvailable ?? false, motionWriter?.accelWriter.sampleCount)
+        imu("gyro", motionManager?.isGyroAvailable ?? false, motionWriter?.gyroWriter.sampleCount)
+        imu("mag", motionManager?.isMagnetometerAvailable ?? false, motionWriter?.magnetoWriter.sampleCount)
+        imu("fused", motionManager?.isDeviceMotionAvailable ?? false, motionWriter?.fusedWriter.sampleCount)
+
+        if isRecording && btWriter != nil {
+            setSensor("bt", .live, String(format: "%d pkts", btWriter.sampleCount))
+        } else if btManager?.state == .poweredOn {
+            setSensor("bt", .ready, "powered on")
+        } else if btManager?.state == .unauthorized {
+            setSensor("bt", .warn, "no permission")
+        } else {
+            setSensor("bt", .off, "off")
+        }
+
+        let auth = locationManager?.authorizationStatus
+        if isRecording && locationWriter != nil {
+            setSensor("loc", .live, String(format: "%d fixes", locationWriter.sampleCount))
+        } else if auth == .authorizedWhenInUse || auth == .authorizedAlways {
+            setSensor("loc", .ready, "authorized")
+        } else if auth == .notDetermined {
+            setSensor("loc", .warn, "pending")
+        } else {
+            setSensor("loc", .warn, "denied")
+        }
     }
 
     private func makeDot() -> UIView {
@@ -486,6 +688,9 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate, CB
 
     private func toggleRecording(val: Bool) {
         self.isRecording = val
+        if val {
+            prevCounts.removeAll()
+        }
         self.fpsStepper.isEnabled = !val
         // prevent screen lock while recording
         UIApplication.shared.isIdleTimerDisabled = val
