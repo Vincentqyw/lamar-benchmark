@@ -1,102 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2A3160"/>
-      <stop offset="0.55" stop-color="#141936"/>
-      <stop offset="1" stop-color="#0A0D20"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232B5C"/>
+      <stop offset="1" stop-color="#0E1230"/>
     </linearGradient>
-    <radialGradient id="coreGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#46D4EE" stop-opacity="0.14"/>
-      <stop offset="0.6" stop-color="#46D4EE" stop-opacity="0.05"/>
-      <stop offset="1" stop-color="#46D4EE" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.72">
-      <stop offset="0" stop-color="#04060F" stop-opacity="0"/>
-      <stop offset="0.78" stop-color="#04060F" stop-opacity="0"/>
-      <stop offset="1" stop-color="#04060F" stop-opacity="0.5"/>
-    </radialGradient>
-    <linearGradient id="trail" x1="262" y1="738" x2="700" y2="330" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3E9FBC" stop-opacity="0.75"/>
-      <stop offset="0.6" stop-color="#7FDCEF"/>
-      <stop offset="1" stop-color="#DDF9FF"/>
-    </linearGradient>
-    <radialGradient id="redGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#FF4A3D" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#FF4A3D" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="soft18" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="18"/>
-    </filter>
-    <filter id="soft8" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="8"/>
-    </filter>
   </defs>
 
-  <!-- void -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
-  <circle cx="500" cy="500" r="520" fill="url(#coreGlow)"/>
 
-  <!-- graticule: the unmeasured world -->
-  <circle cx="512" cy="512" r="430" fill="none" stroke="#FFFFFF" stroke-opacity="0.05" stroke-width="3"/>
-  <circle cx="512" cy="512" r="610" fill="none" stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="3"/>
-
-  <!-- constellation lattice -->
-  <g stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="3">
-    <line x1="300" y1="280" x2="450" y2="360"/>
-    <line x1="450" y1="360" x2="505" y2="300"/>
-    <line x1="270" y1="380" x2="356" y2="338"/>
-    <line x1="356" y1="338" x2="300" y2="280"/>
-    <line x1="740" y1="610" x2="700" y2="480"/>
-    <line x1="640" y1="560" x2="700" y2="480"/>
+  <!-- viewfinder -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round">
+    <path d="M 188 316 L 188 268 A 80 80 0 0 1 268 188 L 316 188"/>
+    <path d="M 708 188 L 756 188 A 80 80 0 0 1 836 268 L 836 316"/>
+    <path d="M 188 708 L 188 756 A 80 80 0 0 0 268 836 L 316 836"/>
+    <path d="M 708 836 L 756 836 A 80 80 0 0 0 836 756 L 836 708"/>
   </g>
 
-  <!-- survey points -->
-  <g fill="#86E3F2">
-    <circle cx="300" cy="280" r="7"  fill-opacity="0.85"/>
-    <circle cx="356" cy="338" r="5"  fill-opacity="0.55"/>
-    <circle cx="270" cy="380" r="6"  fill-opacity="0.70"/>
-    <circle cx="410" cy="270" r="5"  fill-opacity="0.50"/>
-    <circle cx="352" cy="430" r="4"  fill-opacity="0.45"/>
-    <circle cx="450" cy="360" r="8"  fill-opacity="0.90"/>
-    <circle cx="505" cy="300" r="4"  fill-opacity="0.40"/>
-    <circle cx="640" cy="560" r="6"  fill-opacity="0.60"/>
-    <circle cx="700" cy="480" r="5"  fill-opacity="0.50"/>
-    <circle cx="740" cy="610" r="7"  fill-opacity="0.75"/>
-    <circle cx="660" cy="660" r="4"  fill-opacity="0.40"/>
-    <circle cx="430" cy="660" r="4"  fill-opacity="0.35"/>
-    <circle cx="330" cy="560" r="5"  fill-opacity="0.50"/>
-  </g>
-
-  <!-- the traverse -->
-  <path d="M 262 738 C 420 720, 356 540, 520 480 C 628 452, 596 360, 700 330"
-        fill="none" stroke="#46D4EE" stroke-opacity="0.35" stroke-width="44"
-        stroke-linecap="round" filter="url(#soft18)"/>
-  <path d="M 262 738 C 420 720, 356 540, 520 480 C 628 452, 596 360, 700 330"
-        fill="none" stroke="url(#trail)" stroke-width="16" stroke-linecap="round"/>
-
-  <!-- keyframes along the traverse -->
-  <g fill="#FFFFFF">
-    <circle cx="262" cy="738" r="13" fill-opacity="0.95"/>
-    <circle cx="365" cy="666" r="9"  fill-opacity="0.75"/>
-    <circle cx="424" cy="558" r="9"  fill-opacity="0.80"/>
-    <circle cx="520" cy="480" r="11" fill-opacity="0.90"/>
-    <circle cx="608" cy="408" r="9"  fill-opacity="0.85"/>
-  </g>
-
-  <!-- the pulse: moment of capture -->
-  <circle cx="700" cy="330" r="110" fill="url(#redGlow)"/>
-  <circle cx="700" cy="330" r="46" fill="none" stroke="#FFFFFF" stroke-opacity="0.92" stroke-width="7"/>
-  <circle cx="700" cy="330" r="30" fill="#FF453A"/>
-
-  <!-- observer's window -->
-  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.93" stroke-width="30" stroke-linecap="round">
-    <path d="M 170 272 L 170 240 A 70 70 0 0 1 240 170 L 272 170"/>
-    <path d="M 752 170 L 784 170 A 70 70 0 0 1 854 240 L 854 272"/>
-    <path d="M 170 752 L 170 784 A 70 70 0 0 0 240 854 L 272 854"/>
-    <path d="M 752 854 L 784 854 A 70 70 0 0 0 854 784 L 854 752"/>
-  </g>
-
-  <!-- vignette -->
-  <rect width="1024" height="1024" fill="url(#vignette)"/>
+  <!-- record -->
+  <circle cx="512" cy="512" r="164" fill="none" stroke="#FFFFFF" stroke-width="26"/>
+  <circle cx="512" cy="512" r="118" fill="#FF453A"/>
 </svg>
